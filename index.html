@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Puppet Syncer — Mouth Animation Tool</title>
+<style>
+  /* ===== Variables ===== */
+  :root {
+    --bg:        #141416;
+    --bg-panel:  #1e1e22;
+    --bg-input:  #26262c;
+    --border:    #34343a;
+    --text:      #ece8df;
+    --text-dim:  #8c887c;
+    --accent:    #e89440;
+    --accent-glow: rgba(232, 148, 64, 0.35);
+    --danger:    #d94a4a;
+    --success:   #4ac06a;
+    --font-sans: 'Inter', 'DM Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+    --radius:    10px;
+    --radius-sm: 7px;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:15px;-webkit-font-smoothing:antialiased}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-sans);
+    height:100vh;
+    overflow:hidden;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 20% 70%, #1a1a15 0%, transparent 70%),
+      radial-gradient(ellipse 60% 50% at 85% 25%, #1a1812 0%, transparent 60%);
+  }
+
+  /* ===== Layout ===== */
+  .app{display:grid;grid-template-columns:340px 1fr;grid-template-rows:52px 1fr;height:100vh}
+  .topbar{
+    grid-column:1/-1;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 24px;
+    background:var(--bg-panel);
+    border-bottom:1px solid var(--border);
+    z-index:10;
+  }
+  .topbar-brand{display:flex;align-items:center;gap:10px}
+  .topbar-brand .dot{
+    width:28px;height:28px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 16px var(--accent-glow);
+  }
+  .topbar-brand h1{font-size:1.15rem;font-weight:600;letter-spacing:-0.01em;line-height:1}
+  .topbar-brand span{display:block;font-size:0.6rem;color:var(--text-dim);letter-spacing:0.14em;text-transform:uppercase}
+  .topbar-actions{display:flex;gap:8px}
+
+  .sidebar{
+    background:var(--bg-panel);
+    border-right:1px solid var(--border);
+    padding:16px;
+    display:flex;flex-direction:column;gap:14px;
+    overflow-y:auto;
+  }
+
+  .stage{
+    display:flex;align-items:center;justify-content:center;
+    position:relative;
+    background:
+      repeating-conic-gradient(#1e1e24 0% 25%, transparent 0% 50%) 50% / 18px 18px;
+  }
+  .stage::after{
+    content:'';position:absolute;inset:0;
+    background:radial-gradient(ellipse at center, transparent 35%, var(--bg) 100%);
+    pointer-events:none;
+  }
+  .stage-inner{position:relative;z-index:1}
+  canvas#main-canvas{
+    display:block;max-width:92vw;max-height:78vh;
+    border-radius:var(--radius);
+    box-shadow:0 0 50px rgba(0,0,0,0.55),0 0 90px var(--accent-glow);
+    cursor:crosshair;
+  }
+  .stage-hint{
+    position:absolute;bottom:16px;left:50%;translate:-50% 0;
+    font-size:0.8rem;color:var(--text-dim);
+    pointer-events:none;z-index:2;
+    transition:opacity 0.4s;
+  }
+
+  /* ===== Panels ===== */
+  .panel{
+    background:var(--bg-input);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px;
+    transition:opacity 0.35s, filter 0.35s;
+  }
+  .panel.disabled{opacity:0.35;pointer-events:none;filter:grayscale(0.6)}
+  .panel-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .panel-head .step{
+    width:20px;height:20px;border-radius:50%;
+    background:var(--border);color:var(--text-dim);
+    display:flex;align-items:center;justify-content:center;
+    font-size:0.65rem;font-weight:700;flex-shrink:0;
+  }
+  .panel-head .step.done{background:var(--success);color:#fff}
+  .panel-head h3{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);font-weight:600}
+
+  /* Upload */
+  .dropzone{
+    border:2px dashed var(--border);border-radius:var(--radius);
+    padding:20px;text-align:center;cursor:pointer;
+    transition:all 0.2s;
+    min-height:90px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;
+  }
+  .dropzone:hover,.dropzone.dragover{border-color:var(--accent);background:var(--accent-glow)}
+  .dropzone.filled{border-style:solid;border-color:var(--success);padding:6px}
+  .dropzone.filled img{max-width:100%;max-height:100px;border-radius:var(--radius-sm)}
+  .dropzone .dz-icon{font-size:1.8rem;opacity:0.5}
+  .dropzone .dz-label{font-size:0.78rem;color:var(--text-dim)}
+  input[type=file]{display:none}
+
+  /* Controls */
+  .field{margin-bottom:12px}
+  .field:last-child{margin-bottom:0}
+  .field label{display:block;font-size:0.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;font-weight:600}
+  .segmented{
+    display:grid;grid-template-columns:1fr 1fr;gap:3px;
+    background:var(--bg);border-radius:var(--radius-sm);padding:3px;
+  }
+  .seg-btn{
+    padding:8px 10px;border:none;border-radius:5px;
+    cursor:pointer;font-size:0.78rem;font-family:var(--font-sans);
+    background:transparent;color:var(--text-dim);transition:all 0.15s;
+  }
+  .seg-btn.active{background:var(--accent);color:#1a1a1c;font-weight:600;box-shadow:0 2px 10px var(--accent-glow)}
+  .hint-text{
+    font-size:0.7rem;color:var(--accent);background:var(--bg);
+    padding:7px 10px;border-radius:var(--radius-sm);border-left:3px solid var(--accent);line-height:1.5;
+  }
+
+  /* Buttons */
+  .btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:8px 16px;border:none;border-radius:var(--radius-sm);
+    cursor:pointer;font-family:var(--font-sans);font-size:0.78rem;font-weight:500;
+    transition:all 0.15s;white-space:nowrap;
+  }
+  .btn:disabled{opacity:0.35;cursor:default;pointer-events:none}
+  .btn-primary{background:var(--accent);color:#1a1a1c;font-weight:600}
+  .btn-primary:hover:not(:disabled){box-shadow:0 0 18px var(--accent-glow);translate:0 -1px}
+  .btn-danger{background:var(--danger);color:#fff}
+  .btn-danger:hover:not(:disabled){box-shadow:0 0 14px rgba(217,74,74,0.4)}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+  .btn-ghost:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  .btn-sm{padding:5px 12px;font-size:0.72rem}
+  .btn-block{width:100%;justify-content:center}
+
+  /* Record */
+  .rec-row{display:flex;align-items:center;gap:8px}
+  .rec-dot{width:9px;height:9px;border-radius:50%;background:var(--border);transition:all 0.2s;flex-shrink:0}
+  .rec-dot.live{background:var(--danger);animation:blink 0.8s infinite;box-shadow:0 0 10px var(--danger)}
+  .rec-dot.ready{background:var(--success)}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0.25}}
+  .rec-time{font-family:var(--font-mono);font-size:0.78rem;color:var(--text-dim);min-width:38px}
+  .wave-wrap{width:100%;height:42px;background:var(--bg);border-radius:var(--radius-sm);overflow:hidden;margin-top:8px}
+  .wave-wrap canvas{width:100%;height:100%}
+
+  /* Export panel pinned */
+  .panel.export-panel{margin-top:auto}
+
+  /* Responsive */
+  @media(max-width:768px){
+    .app{grid-template-columns:1fr;grid-template-rows:48px auto 1fr}
+    .stage{min-height:280px}
+    .sidebar{max-height:45vh}
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="app">
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="dot"></div>
+      <div>
+        <h1>Puppet Syncer</h1>
+        <span>Mouth Animation Tool</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost btn-sm" id="btn-reset">↺ Reset All</button>
+    </div>
+  </header>
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar" id="sidebar">
+
+    <!-- 1. Upload -->
+    <div class="panel" id="pnl-upload">
+      <div class="panel-head">
+        <div class="step" id="stp-upload">1</div>
+        <h3>Upload Image</h3>
+      </div>
+      <div class="dropzone" id="dropzone">
+        <span class="dz-icon">🖼</span>
+        <span class="dz-label">Drop image or click</span>
+        <input type="file" id="file-inp" accept="image/*">
+      </div>
+    </div>
+
+    <!-- 2. Cut Line -->
+    <div class="panel disabled" id="pnl-cut">
+      <div class="panel-head">
+        <div class="step" id="stp-cut">2</div>
+        <h3>Draw Cut Line</h3>
+      </div>
+      <p class="hint-text" id="hint-cut">
+        Click &amp; drag across the <strong>mouth</strong> on the stage.
+      </p>
+      <button class="btn btn-ghost btn-sm btn-block" id="btn-redo-cut" style="margin-top:6px">↩ Redo Cut</button>
+    </div>
+
+    <!-- 2b. Eyes (optional) -->
+    <div class="panel disabled" id="pnl-eyes">
+      <div class="panel-head">
+        <div class="step" id="stp-eyes">👁</div>
+        <h3>Eye Blinks</h3>
+      </div>
+      <p class="hint-text" id="hint-eyes" style="display:none;">
+        Click &amp; drag a short line across <strong>each eye</strong> on the stage.
+      </p>
+      <div id="eye-list" style="font-size:0.72rem;color:var(--text-dim);margin:4px 0;display:none;"></div>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button class="btn btn-ghost btn-sm" id="btn-eye-mode" style="flex:1;">✏ Add Eye Lines</button>
+        <button class="btn btn-ghost btn-sm" id="btn-eye-clear" style="display:none;">Clear</button>
+      </div>
+    </div>
+
+    <!-- 3. Mode -->
+    <div class="panel disabled" id="pnl-mode">
+      <div class="panel-head">
+        <div class="step" id="stp-mode">3</div>
+        <h3>Puppet Mode</h3>
+      </div>
+      <div class="field">
+        <label>Style</label>
+        <div class="segmented" id="seg-mode">
+          <button class="seg-btn active" data-v="side">Side Pivot</button>
+          <button class="seg-btn" data-v="front">Front Face</button>
+        </div>
+      </div>
+      <div class="field" id="pivot-wrap">
+        <label>Pivot Side</label>
+        <div class="segmented" id="seg-pivot">
+          <button class="seg-btn active" data-v="left">Left</button>
+          <button class="seg-btn" data-v="right">Right</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Record -->
+    <div class="panel disabled" id="pnl-record">
+      <div class="panel-head">
+        <div class="step" id="stp-record">4</div>
+        <h3>Record Voice</h3>
+      </div>
+      <div class="rec-row">
+        <div class="rec-dot" id="rec-dot"></div>
+        <button class="btn btn-danger btn-sm" id="btn-rec">🎤 Record</button>
+        <span class="rec-time" id="rec-time">0:00</span>
+      </div>
+      <div class="wave-wrap" id="wave-wrap"><canvas id="wave-canvas"></canvas></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn btn-ghost btn-sm" id="btn-play" disabled>▶ Preview Audio</button>
+        <button class="btn btn-ghost btn-sm" id="btn-anim" disabled>🎬 Preview Anim</button>
+      </div>
+    </div>
+
+    <!-- 5. Export -->
+    <div class="panel disabled export-panel" id="pnl-export">
+      <div class="panel-head">
+        <div class="step" id="stp-export">5</div>
+        <h3>Export</h3>
+      </div>
+      <button class="btn btn-primary btn-block" id="btn-export" disabled>
+        ⬇ Export Green‑Screen Video
+      </button>
+      <p style="font-size:0.66rem;color:var(--text-dim);text-align:center;margin-top:6px">
+        WebM · chroma #00ff00 · 30 fps · audio mixed in
+      </p>
+    </div>
+  </aside>
+
+  <!-- ===== STAGE ===== -->
+  <main class="stage" id="stage-main">
+    <div class="stage-inner">
+      <canvas id="main-canvas"></canvas>
+    </div>
+    <div class="stage-hint" id="stage-hint">Upload an image to begin</div>
+  </main>
+</div>
+
+<script type="module">
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  PUPPET SYNCER  —  Mouth Animation & Green-Screen Export   ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// ── DOM refs ──────────────────────────────────────────────
+const $ = (s,d=document) => d.querySelector(s);
+const $$ = (s,d=document) => [...d.querySelectorAll(s)];
+
+const mainCanvas   = $('#main-canvas');
+const stageHint    = $('#stage-hint');
+const dropzone     = $('#dropzone');
+const fileInp      = $('#file-inp');
+const waveCanvas   = $('#wave-canvas');
+const recDot       = $('#rec-dot');
+const recTime      = $('#rec-time');
+const btnRec       = $('#btn-rec');
+const btnPlay      = $('#btn-play');
+const btnAnim      = $('#btn-anim');
+const btnExport    = $('#btn-export');
+const btnReset     = $('#btn-reset');
+const btnRedoCut   = $('#btn-redo-cut');
+const segMode      = $('#seg-mode');
+const segPivot     = $('#seg-pivot');
+const pivotWrap    = $('#pivot-wrap');
+const hintCut      = $('#hint-cut');
+
+const panels = {
+  cut:    $('#pnl-cut'),
+  eyes:   $('#pnl-eyes'),
+  mode:   $('#pnl-mode'),
+  record: $('#pnl-record'),
+  export: $('#pnl-export'),
+};
+const steps = {
+  cut:    $('#stp-cut'),
+  eyes:   $('#stp-eyes'),
+  mode:   $('#stp-mode'),
+  record: $('#stp-record'),
+  export: $('#stp-export'),
+};
+
+const btnEyeMode  = $('#btn-eye-mode');
+const btnEyeClear = $('#btn-eye-clear');
+const hintEyes    = $('#hint-eyes');
+const eyeList     = $('#eye-list');
+
+// ── Constants ─────────────────────────────────────────────
+const  W = 640, H = 480;
+const  FPS = 30;
+const  MAX_ANGLE = 14;      // degrees for side-pivot
+const  MAX_OFFSET = 22;     // px for front-face
+const  NOISE_FLOOR = 0.06;  // gate out ambient noise
+
+// ── State ─────────────────────────────────────────────────
+const ctx    = mainCanvas.getContext('2d');
+const wfCtx  = waveCanvas.getContext('2d');
+
+let srcImg     = null;       // HTMLImageElement
+let upperData  = null;       // ImageData (pre-cut upper)
+let lowerData  = null;       // ImageData (pre-cut lower)
+let cutLine    = null;       // {x1,y1,x2,y2} in canvas coords
+let drawing    = false;
+let drawStart  = null;
+
+let mode       = 'side';     // 'side'|'front'
+let pivot      = 'left';     // 'left'|'right'
+
+let audioBuf   = null;       // AudioBuffer
+let audioBlob  = null;       // raw recording blob
+let ampData    = null;       // Float32Array of normalised amplitudes
+let recState   = 'idle';     // 'idle'|'recording'|'done'
+let mr         = null;       // MediaRecorder
+let mrChunks   = [];
+let recStartMs = 0;
+let recTimer   = null;
+let audioCtx   = null;
+
+let animId     = null;
+let animating  = false;
+
+// Cached canvases for pre-cut pieces (avoids allocation per frame)
+let upperCache = null;       // HTMLCanvasElement
+let lowerCache = null;       // HTMLCanvasElement
+
+// Eye blink state
+let eyeLines   = [];         // {x1,y1,x2,y2, patch:Canvas} per eye
+let drawMode   = null;       // null | 'mouth' | 'eyes'
+let blinkState = [];         // per-eye: {stage, since, duration, nextAt, pairedWith}
+
+// Blink timing — natural irregularity
+function randomBlinkInterval() {
+  // Mostly 0.6–4s, occasionally longer (weighted toward shorter)
+  const r = Math.random();
+  if (r < 0.30) return 0.6 + Math.random() * 1.0;   // rapid (0.6–1.6s)
+  if (r < 0.75) return 1.0 + Math.random() * 2.0;   // normal (1.0–3.0s)
+  if (r < 0.92) return 2.5 + Math.random() * 2.5;   // relaxed (2.5–5.0s)
+  return 4.0 + Math.random() * 3.0;                  // long pause (4.0–7.0s)
+}
+function randomBlinkDuration() {
+  return 0.07 + Math.random() * 0.12; // 70–190ms
+}
+const BLINK_PATCH_HALF_H = 5;    // half-height of closed-eye strip in px
+
+// ── Init canvas ───────────────────────────────────────────
+mainCanvas.width  = W;
+mainCanvas.height = H;
+
+function blankStage(msg='Upload an image to begin') {
+  ctx.fillStyle = '#141416';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#34343a';
+  ctx.font = '13px "Inter", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(msg, W/2, H/2);
+}
+blankStage();
+
+// ═══════════════════════════════════════════════════════════
+//  PANEL HELPERS
+// ═══════════════════════════════════════════════════════════
+function setPanel(id, on) {
+  panels[id].classList.toggle('disabled', !on);
+}
+function setStep(id, done) {
+  steps[id].classList.toggle('done', done);
+  steps[id].textContent = done ? '✓' : steps[id].dataset.num || steps[id].textContent;
+}
+// Tag step numbers
+Object.entries(steps).forEach(([k,el]) => { el.dataset.num = el.textContent; });
+
+function unlock(upTo) {
+  // upTo: 'cut'|'eyes'|'mode'|'record'|'export'
+  const order = ['cut','eyes','mode','record','export'];
+  for (const o of order) {
+    const on = order.indexOf(o) <= order.indexOf(upTo);
+    setPanel(o, on);
+    setStep(o, on);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  1. IMAGE UPLOAD
+// ═══════════════════════════════════════════════════════════
+dropzone.addEventListener('click', () => {
+    if (!srcImg) fileInp.click();
+  });
+fileInp.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f?.type?.startsWith('image/')) loadFile(f);
+});
+
+function loadFile(file) {
+  const r = new FileReader();
+  r.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      srcImg = img;
+      cutLine = null; upperData = null; lowerData = null;
+      upperCache = null; lowerCache = null;
+      clearEyeLines();
+      drawMode = 'mouth';
+      btnEyeMode.textContent = '✏ Add Eye Lines';
+      btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
+      hintEyes.style.display = 'none';
+      eyeList.style.display = 'none';
+      btnEyeClear.style.display = 'none';
+      redrawAll();
+      dropzone.classList.add('filled');
+      dropzone.innerHTML = `<img src="${ev.target.result}" alt="upload">`;
+      unlock('cut');
+      hintCut.innerHTML = 'Click &amp; drag across the <strong>mouth</strong> on the stage.';
+      stageHint.textContent = 'Draw a cut line across the mouth';
+      stopAnim();
+    };
+    img.src = ev.target.result;
+  };
+  r.readAsDataURL(file);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  2. CUT LINE
+// ═══════════════════════════════════════════════════════════
+function canvasPos(e) {
+  const r = mainCanvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) * (W / r.width),
+    y: (e.clientY - r.top)  * (H / r.height),
+  };
+}
+
+function drawImageOnly(tgt, fillBg = true) {
+  // Draw just the source image, no cut-line overlay. Used for slicing.
+  if (!srcImg) return;
+  if (fillBg) { tgt.fillStyle = '#141416'; tgt.fillRect(0, 0, W, H); }
+  const s = Math.min(W / srcImg.width, H / srcImg.height);
+  const iw = srcImg.width * s, ih = srcImg.height * s;
+  const ix = (W - iw)/2, iy = (H - ih)/2;
+  tgt.drawImage(srcImg, ix, iy, iw, ih);
+}
+
+function redrawAll() {
+  if (!srcImg) { blankStage(); return; }
+  drawImageOnly(ctx, true);
+  if (cutLine) drawCutOverlay();
+  if (eyeLines.length > 0) drawEyeOverlays();
+}
+
+function drawEyeOverlays() {
+  eyeLines.forEach(el => {
+    ctx.save();
+    ctx.strokeStyle = '#55c0e0'; ctx.lineWidth = 1.5; ctx.setLineDash([3,2]);
+    ctx.beginPath(); ctx.moveTo(el.x1, el.y1); ctx.lineTo(el.x2, el.y2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#55c0e066';
+    const mx = (el.x1 + el.x2) / 2, my = (el.y1 + el.y2) / 2;
+    ctx.beginPath(); ctx.arc(mx, my, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawCutOverlay() {
+  const {x1,y1,x2,y2} = cutLine;
+  ctx.save();
+  ctx.strokeStyle = '#e89440'; ctx.lineWidth = 2; ctx.setLineDash([5,3]);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.setLineDash([]);
+  [ [x1,y1], [x2,y2] ].forEach(([cx,cy]) => {
+    ctx.fillStyle = '#e89440'; ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#1a1a1c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+mainCanvas.addEventListener('mousedown', e => {
+  if (!srcImg) return;
+  if (drawMode === 'mouth' && cutLine) return;
+  if (drawMode === null) return;
+  drawing = true;
+  drawStart = canvasPos(e);
+  stageHint.textContent = drawMode === 'eyes' ? 'Drag a short line across the eye…' : 'Drag to the other side of the mouth…';
+});
+
+mainCanvas.addEventListener('mousemove', e => {
+  if (!drawing) return;
+  const pos = canvasPos(e);
+  redrawAll();
+  ctx.save();
+  ctx.strokeStyle = drawMode === 'eyes' ? '#55c0e0' : '#e89440';
+  ctx.lineWidth = 2.5; ctx.setLineDash([7,4]);
+  ctx.beginPath(); ctx.moveTo(drawStart.x, drawStart.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
+  ctx.setLineDash([]);
+  [drawStart, pos].forEach(p => {
+    ctx.fillStyle = drawMode === 'eyes' ? '#55c0e0' : '#e89440';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#1a1a1c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.stroke();
+  });
+  ctx.restore();
+});
+
+mainCanvas.addEventListener('mouseup', e => {
+  if (!drawing) return;
+  drawing = false;
+  const end = canvasPos(e);
+  const d = Math.hypot(end.x - drawStart.x, end.y - drawStart.y);
+  if (d < 10) { stageHint.textContent = 'Line too short — try again'; drawStart = null; redrawAll(); return; }
+
+  if (drawMode === 'mouth') {
+    cutLine = { x1: drawStart.x, y1: drawStart.y, x2: end.x, y2: end.y };
+    redrawAll();
+    stageHint.textContent = 'Cut line set! Pick puppet mode →';
+    hintCut.innerHTML = '✅ Cut line set. <a href="#" id="inline-redo" style="color:var(--accent);">Redo</a>';
+    $('#inline-redo')?.addEventListener('click', e => { e.preventDefault(); resetCut(); });
+    unlock('eyes');
+    doSlice();
+  } else if (drawMode === 'eyes') {
+    addEyeLine(drawStart, end);
+    redrawAll();
+    stageHint.textContent = `${eyeLines.length} eye line(s) placed. Click again or toggle off.`;
+  }
+});
+
+// Touch support
+mainCanvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!srcImg) return;
+  if (drawMode === 'mouth' && cutLine) return;
+  if (drawMode === null) return;
+  drawing = true;
+  drawStart = canvasPos(e.touches[0]);
+  stageHint.textContent = drawMode === 'eyes' ? 'Drag a short line across the eye…' : 'Drag to the other side of the mouth…';
+}, {passive: false});
+mainCanvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!drawing) return;
+  const pos = canvasPos(e.touches[0]);
+  redrawAll();
+  ctx.save();
+  ctx.strokeStyle = drawMode === 'eyes' ? '#55c0e0' : '#e89440';
+  ctx.lineWidth = 2.5; ctx.setLineDash([7,4]);
+  ctx.beginPath(); ctx.moveTo(drawStart.x, drawStart.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
+  ctx.setLineDash([]);
+  [drawStart, pos].forEach(p => {
+    ctx.fillStyle = drawMode === 'eyes' ? '#55c0e0' : '#e89440';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#1a1a1c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.stroke();
+  });
+  ctx.restore();
+}, {passive: false});
+mainCanvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!drawing) return;
+  drawing = false;
+  const end = canvasPos(e.changedTouches[0]);
+  const d = Math.hypot(end.x - drawStart.x, end.y - drawStart.y);
+  if (d < 10) { stageHint.textContent = 'Line too short — try again'; drawStart = null; redrawAll(); return; }
+
+  if (drawMode === 'mouth') {
+    cutLine = { x1: drawStart.x, y1: drawStart.y, x2: end.x, y2: end.y };
+    redrawAll();
+    stageHint.textContent = 'Cut line set! Pick puppet mode →';
+    hintCut.innerHTML = '✅ Cut line set. <a href="#" id="inline-redo" style="color:var(--accent);">Redo</a>';
+    $('#inline-redo')?.addEventListener('click', e => { e.preventDefault(); resetCut(); });
+    unlock('eyes');
+    doSlice();
+  } else if (drawMode === 'eyes') {
+    addEyeLine(drawStart, end);
+    redrawAll();
+    stageHint.textContent = `${eyeLines.length} eye line(s) placed. Click again or toggle off.`;
+  }
+});
+
+function resetCut() {
+  cutLine = null; upperData = null; lowerData = null; upperCache = null; lowerCache = null;
+  drawing = false; drawStart = null;
+  clearEyeLines();
+  drawMode = 'mouth';
+  btnEyeMode.textContent = '✏ Add Eye Lines';
+  btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
+  hintEyes.style.display = 'none';
+  eyeList.style.display = 'none';
+  btnEyeClear.style.display = 'none';
+  redrawAll();
+  stageHint.textContent = 'Draw a cut line across the mouth';
+  hintCut.innerHTML = 'Click &amp; drag across the <strong>mouth</strong> on the stage.';
+  unlock('cut');
+  stopAnim();
+}
+btnRedoCut.addEventListener('click', resetCut);
+
+function doSlice() {
+  if (!srcImg || !cutLine) return;
+
+  // Build a clean transparent snapshot of just the image, scaled to fit.
+  // This preserves the PNG's own alpha so transparent areas stay transparent.
+  const clean = document.createElement('canvas');
+  clean.width = W; clean.height = H;
+  const cleanCtx = clean.getContext('2d');
+  const s = Math.min(W / srcImg.width, H / srcImg.height);
+  const iw = srcImg.width * s, ih = srcImg.height * s;
+  const ix = (W - iw) / 2, iy = (H - ih) / 2;
+  cleanCtx.drawImage(srcImg, ix, iy, iw, ih);
+  const full = cleanCtx.getImageData(0, 0, W, H);
+
+  const upper = document.createElement('canvas');
+  upper.width = W; upper.height = H;
+  const uCtx = upper.getContext('2d');
+  uCtx.putImageData(full, 0, 0);
+  const lo = document.createElement('canvas');
+  lo.width = W; lo.height = H;
+  const lCtx = lo.getContext('2d');
+  lCtx.putImageData(full, 0, 0);
+
+  const uD = uCtx.getImageData(0,0,W,H);
+  const lD = lCtx.getImageData(0,0,W,H);
+
+  const {x1,y1,x2,y2} = cutLine;
+  const dx = x2 - x1, dy = y2 - y1;
+
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const idx = (py * W + px) * 4;
+      const side = dx * (py - y1) - dy * (px - x1);
+      if (side > 0) { uD.data[idx+3] = 0; }  // below → clear upper
+      else           { lD.data[idx+3] = 0; }  // above → clear lower
+    }
+  }
+
+  uCtx.putImageData(uD, 0, 0);
+  lCtx.putImageData(lD, 0, 0);
+
+  upperData = uCtx.getImageData(0, 0, W, H);
+  lowerData = lCtx.getImageData(0, 0, W, H);
+  upperCache = upper;
+  lowerCache = lo;
+
+  // Show closed-mouth preview on the stage
+  renderStage(0);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  2b. EYE LINES & BLINK
+// ═══════════════════════════════════════════════════════════
+function addEyeLine(a, b) {
+  if (eyeLines.length >= 4) return; // max 4 eyes
+  const patch = buildEyePatch(a, b);
+  eyeLines.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, patch });
+  resetBlinkTimers();
+  updateEyeUI();
+}
+
+function buildEyePatch(a, b) {
+  // Sample skin tone from above the eye line and create a "closed eye" strip
+  const c = document.createElement('canvas');
+  const midY = (a.y + b.y) / 2;
+  const halfH = BLINK_PATCH_HALF_H;
+  const minX = Math.floor(Math.min(a.x, b.x));
+  const maxX = Math.ceil(Math.max(a.x, b.x));
+  const w = Math.max(maxX - minX, 4);
+  c.width = w; c.height = halfH * 2;
+  const cctx = c.getContext('2d');
+
+  // Use upperCache to sample skin pixels from just above the eye line
+  if (upperCache) {
+    // Sample source: 2-3px above the eye line, halfH rows
+    const srcY = Math.max(0, Math.floor(midY - halfH - 2));
+    // Draw sampled strip, then mirror/flip to create symmetric closed-eye look
+    const strip = document.createElement('canvas');
+    strip.width = w; strip.height = halfH;
+    const sctx = strip.getContext('2d');
+    sctx.drawImage(upperCache, minX, srcY, w, halfH, 0, 0, w, halfH);
+    // Top half: sampled skin
+    cctx.drawImage(strip, 0, 0);
+    // Bottom half: flipped mirror for natural lid look
+    cctx.save();
+    cctx.translate(0, halfH * 2);
+    cctx.scale(1, -1);
+    cctx.drawImage(strip, 0, 0);
+    cctx.restore();
+  } else {
+    // Fallback: flesh tone
+    cctx.fillStyle = '#d4b896';
+    cctx.fillRect(0, 0, w, halfH * 2);
+  }
+
+  return c;
+}
+
+function clearEyeLines() {
+  eyeLines = [];
+  blinkState = [];
+  updateEyeUI();
+}
+
+function updateEyeUI() {
+  if (eyeLines.length === 0) {
+    eyeList.style.display = 'none';
+    btnEyeClear.style.display = 'none';
+  } else {
+    eyeList.style.display = '';
+    eyeList.innerHTML = eyeLines.map((_, i) =>
+      `<span style="display:inline-block;background:var(--bg);padding:2px 8px;border-radius:4px;margin:2px 3px;">👁 Eye ${i + 1}</span>`
+    ).join('');
+    btnEyeClear.style.display = '';
+  }
+}
+
+function resetBlinkTimers() {
+  const t = performance.now() / 1000;
+  // Decide whether eyes blink as a "pair" this cycle (~40% chance)
+  const pairUp = eyeLines.length >= 2 && Math.random() < 0.40;
+  const leader = pairUp ? Math.floor(Math.random() * eyeLines.length) : -1;
+
+  blinkState = eyeLines.map((_, i) => {
+    if (pairUp && i === leader) {
+      const when = t + 0.3 + Math.random() * 1.2;
+      return { stage: 'idle', nextAt: when, duration: 0, pairedWith: (i + 1) % eyeLines.length, doubleChance: Math.random() };
+    } else if (pairUp && leader >= 0 && i === (leader + 1) % eyeLines.length) {
+      return { stage: 'idle', nextAt: t + 0.35 + Math.random() * 1.25, duration: 0, pairedWith: -1, doubleChance: Math.random() };
+    }
+    return { stage: 'idle', nextAt: t + randomBlinkInterval(), duration: 0, pairedWith: -1, doubleChance: Math.random() };
+  });
+}
+
+btnEyeMode.addEventListener('click', () => {
+  if (!cutLine && !upperData) return; // need mouth cut first
+  if (drawMode === 'eyes') {
+    // Exit eye-drawing mode
+    drawMode = null;
+    btnEyeMode.textContent = '✏ Add Eye Lines';
+    btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
+    hintEyes.style.display = 'none';
+    stageHint.textContent = eyeLines.length ? `${eyeLines.length} eye(s) set.` : 'Cut line set!';
+    redrawAll();
+    unlock('mode');
+  } else {
+    // Enter eye-drawing mode
+    drawMode = 'eyes';
+    btnEyeMode.textContent = '✓ Done Adding';
+    btnEyeMode.classList.add('btn-primary'); btnEyeMode.classList.remove('btn-ghost');
+    hintEyes.style.display = '';
+    stageHint.textContent = 'Click & drag across each eye…';
+  }
+});
+
+btnEyeClear.addEventListener('click', () => {
+  clearEyeLines();
+  redrawAll();
+  stageHint.textContent = 'Eyes cleared. Toggle eye mode to add new ones.';
+});
+
+// Draw blink patches over the already-rendered upper piece
+function renderBlinks(tgt) {
+  if (eyeLines.length === 0) return;
+  const now = performance.now() / 1000;
+
+  for (let i = 0; i < eyeLines.length; i++) {
+    const el = eyeLines[i];
+    if (!blinkState[i]) blinkState[i] = { stage: 'idle', nextAt: now + randomBlinkInterval(), duration: 0, pairedWith: -1, doubleChance: Math.random() };
+    const bs = blinkState[i];
+
+    // Idle → blink?
+    if (bs.stage === 'idle' && now >= bs.nextAt) {
+      bs.stage = 'blinking';
+      bs.since = now;
+      bs.duration = randomBlinkDuration();
+    }
+
+    // Currently blinking
+    if (bs.stage === 'blinking') {
+      const elapsed = now - bs.since;
+      if (elapsed >= bs.duration) {
+        // Double blink? (~22% chance)
+        if (bs.doubleChance < 0.22 && !bs._doubled) {
+          bs._doubled = true;
+          bs.since = now;
+          bs.duration = randomBlinkDuration() * 0.6;
+        } else {
+          bs.stage = 'idle';
+          bs._doubled = false;
+          bs.nextAt = now + randomBlinkInterval();
+          bs.doubleChance = Math.random();
+        }
+      }
+    }
+
+    // Compute asymmetric phase: fast close, hold, slow open
+    let phase = 0;
+    if (bs.stage === 'blinking') {
+      const elapsed = now - bs.since;
+      const dur = bs.duration;
+      const t = Math.max(0, Math.min(1, elapsed / dur));
+      if (t < 0.45)       { phase = (t / 0.45) ** 0.55; }
+      else if (t < 0.55)  { phase = 1; }
+      else                { phase = 1 - ((t - 0.55) / 0.45) ** 1.7; }
+    }
+
+    // Draw
+    if (phase > 0.01) {
+      const minX = Math.floor(Math.min(el.x1, el.x2));
+      const maxX = Math.ceil(Math.max(el.x1, el.x2));
+      const midY = (el.y1 + el.y2) / 2;
+      const pw = maxX - minX;
+      const ph = BLINK_PATCH_HALF_H * 2;
+      const drawH = ph * phase;
+      const drawY = midY - drawH / 2;
+
+      tgt.save();
+      tgt.beginPath();
+      tgt.rect(minX - 2, midY - BLINK_PATCH_HALF_H - 2, pw + 4, BLINK_PATCH_HALF_H * 2 + 4);
+      tgt.clip();
+      tgt.drawImage(el.patch, minX, drawY, pw, Math.max(1, drawH));
+      tgt.restore();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  3. PUPPET MODE
+// ═══════════════════════════════════════════════════════════
+$$('.seg-btn', segMode).forEach(b => {
+  b.addEventListener('click', () => {
+    $$('.seg-btn', segMode).forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    mode = b.dataset.v;
+    pivotWrap.style.display = mode === 'side' ? '' : 'none';
+    if (cutLine) { unlock('record'); renderStage(0); }
+  });
+});
+
+$$('.seg-btn', segPivot).forEach(b => {
+  b.addEventListener('click', () => {
+    $$('.seg-btn', segPivot).forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    pivot = b.dataset.v;
+    if (cutLine) renderStage(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════
+function renderFrame(tgt, mouthOpen) {
+  // Renders puppet pieces onto tgt. Does NOT clear — caller sets background.
+  // mouthOpen: 0.0–1.0 (clamped, noise-gated)
+  if (!upperData || !lowerData) return;
+  const mo = Math.max(0, Math.min(1, mouthOpen));
+
+  if (mode === 'side') {
+    const angle = mo * MAX_ANGLE * (Math.PI/180);
+    const {x1,y1,x2,y2} = cutLine;
+    const px = pivot === 'left' ? Math.min(x1,x2) : Math.max(x1,x2);
+    const py = pivot === 'left' ? (x1 < x2 ? y1 : y2) : (x1 > x2 ? y1 : y2);
+    const dir = pivot === 'left' ? -1 : 1;
+
+    tgt.drawImage(upperCache, 0, 0);
+    // Blink patches on upper piece before rotating lower
+    renderBlinks(tgt);
+    tgt.save();
+    tgt.translate(px, py);
+    tgt.rotate(angle * dir);
+    tgt.translate(-px, -py);
+    tgt.drawImage(lowerCache, 0, 0);
+    tgt.restore();
+  } else {
+    const off = mo * MAX_OFFSET;
+    tgt.drawImage(upperCache, 0, -off);
+    // Blink patches must slide up with the upper piece
+    tgt.save();
+    tgt.translate(0, -off);
+    renderBlinks(tgt);
+    tgt.restore();
+    tgt.drawImage(lowerCache, 0, off);
+  }
+}
+
+function renderStage(mouthOpen) {
+  // Render puppet on the main stage canvas with dark background
+  ctx.fillStyle = '#141416';
+  ctx.fillRect(0, 0, W, H);
+  renderFrame(ctx, mouthOpen);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  4. VOICE RECORDING
+// ═══════════════════════════════════════════════════════════
+btnRec.addEventListener('click', async () => {
+  if (recState === 'recording') { stopRecording(); return; }
+  await startRecording();
+});
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = audioCtx || new AudioContext({ sampleRate: 44100 });
+    mrChunks = [];
+    // Try opus first, fallback
+    let mime = 'audio/webm;codecs=opus';
+    if (!MediaRecorder.isTypeSupported(mime)) mime = 'audio/webm';
+    mr = new MediaRecorder(stream, { mimeType: mime });
+    mr.ondataavailable = e => { if (e.data.size) mrChunks.push(e.data); };
+    mr.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      audioBlob = new Blob(mrChunks, { type: mime });
+      await processBlob(audioBlob);
+    };
+    mr.start();
+    recState = 'recording';
+    recStartMs = Date.now();
+    recDot.classList.add('live');
+    recDot.classList.remove('ready');
+    btnRec.textContent = '⏹ Stop';
+    btnRec.classList.remove('btn-danger'); btnRec.classList.add('btn-ghost');
+    btnPlay.disabled = true;
+    btnAnim.disabled = true;
+    btnExport.disabled = true;
+    recTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - recStartMs)/1000);
+      recTime.textContent = `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
+    }, 200);
+  } catch {
+    alert('Microphone access denied. Please allow mic permissions.');
+  }
+}
+
+function stopRecording() {
+  if (mr && mr.state !== 'inactive') mr.stop();
+  recState = 'idle';
+  clearInterval(recTimer);
+  recDot.classList.remove('live');
+  btnRec.textContent = '🎤 Record';
+  btnRec.classList.add('btn-danger'); btnRec.classList.remove('btn-ghost');
+  recTime.textContent = '0:00';
+}
+
+async function processBlob(blob) {
+  try {
+    const buf = await blob.arrayBuffer();
+    audioBuf = await audioCtx.decodeAudioData(buf);
+    ampData = computeAmps(audioBuf);
+    recState = 'done';
+    recDot.classList.add('ready');
+    btnPlay.disabled = false;
+    btnAnim.disabled = false;
+    drawWaveform();
+    if (cutLine && upperData) {
+      unlock('export');
+      btnExport.disabled = false;
+    }
+  } catch (err) {
+    console.error('Audio decode error:', err);
+  }
+}
+
+function computeAmps(buffer) {
+  const raw = buffer.getChannelData(0);
+  const sr = buffer.sampleRate;
+  const spf = Math.floor(sr / FPS);
+  const nFrames = Math.floor(raw.length / spf);
+  const amps = new Float32Array(nFrames);
+  for (let i = 0; i < nFrames; i++) {
+    let sum = 0;
+    const base = i * spf;
+    for (let j = 0; j < spf; j++) sum += Math.abs(raw[base + j]);
+    amps[i] = sum / spf;
+  }
+  // Normalise
+  const peak = Math.max(...amps, 0.0001);
+  for (let i = 0; i < amps.length; i++) amps[i] = Math.min(amps[i] / (peak * 0.65), 1);
+
+  // Smooth + noise gate
+  const out = new Float32Array(amps.length);
+  for (let i = 0; i < amps.length; i++) {
+    const prev = i > 0 ? out[i-1] : 0;
+    const raw = amps[i] < NOISE_FLOOR ? 0 : amps[i];
+    out[i] = prev * 0.7 + raw * 0.3;
+  }
+  return out;
+}
+
+function drawWaveform() {
+  if (!ampData) return;
+  const w = waveCanvas.parentElement.clientWidth;
+  const h = 42;
+  const dpr = devicePixelRatio || 1;
+  waveCanvas.width  = w * dpr;
+  waveCanvas.height = h * dpr;
+  waveCanvas.style.width  = w + 'px';
+  waveCanvas.style.height = h + 'px';
+  wfCtx.setTransform(dpr,0,0,dpr,0,0);
+  wfCtx.clearRect(0, 0, w, h);
+
+  const barW = w / ampData.length;
+  wfCtx.fillStyle = '#e89440';
+  for (let i = 0; i < ampData.length; i++) {
+    const barH = ampData[i] * h * 0.85;
+    wfCtx.fillRect(i * barW, (h - barH)/2, Math.max(barW - 1, 1), barH);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  5. ANIMATION
+// ═══════════════════════════════════════════════════════════
+btnAnim.addEventListener('click', () => {
+  if (animating) { stopAnim(); return; }
+  if (!ampData || !upperData) return;
+  startAnim(true);
+});
+
+function startAnim(withAudio=false) {
+  stopAnim();
+  animating = true;
+  btnAnim.textContent = '⏹ Stop';
+  resetBlinkTimers(); // fresh random blink schedule
+  const t0 = performance.now();
+  if (withAudio && audioBuf) {
+    const src = audioCtx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(audioCtx.destination);
+    src.start();
+  }
+  function loop() {
+    if (!animating) return;
+    const elapsed = (performance.now() - t0) / 1000;
+    const idx = Math.floor(elapsed * FPS);
+    if (ampData && idx < ampData.length) {
+      renderStage(ampData[idx]);
+    } else if (ampData && idx >= ampData.length) {
+      renderStage(0);
+      stopAnim();
+      return;
+    }
+    animId = requestAnimationFrame(loop);
+  }
+  animId = requestAnimationFrame(loop);
+}
+
+function stopAnim() {
+  animating = false;
+  if (animId) cancelAnimationFrame(animId);
+  animId = null;
+  btnAnim.textContent = '🎬 Preview Anim';
+  if (upperData) renderStage(0);
+}
+
+btnPlay.addEventListener('click', () => {
+  if (!audioBuf) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = audioBuf;
+  src.connect(audioCtx.destination);
+  src.start();
+});
+
+// ═══════════════════════════════════════════════════════════
+//  6. GREEN-SCREEN EXPORT
+// ═══════════════════════════════════════════════════════════
+btnExport.addEventListener('click', doExport);
+
+async function doExport() {
+  if (!ampData || !upperData) return;
+  btnExport.disabled = true;
+  btnExport.textContent = '⏳ Rendering frames…';
+
+  resetBlinkTimers(); // fresh random blink schedule
+
+  const totalFrames = ampData.length;
+
+  // Hidden canvas for export (always works with captureStream)
+  const expCanvas = document.createElement('canvas');
+  expCanvas.width = W;
+  expCanvas.height = H;
+  const expCtx = expCanvas.getContext('2d');
+
+  // Mime type
+  let vmime = 'video/webm;codecs=vp9';
+  if (!MediaRecorder.isTypeSupported(vmime)) vmime = 'video/webm;codecs=vp8';
+  if (!MediaRecorder.isTypeSupported(vmime)) vmime = 'video/webm';
+
+  // Video stream from canvas
+  const videoStream = expCanvas.captureStream(FPS);
+  const videoTrack = videoStream.getVideoTracks()[0];
+
+  // ── Mix in audio ──
+  let combinedStream = videoStream;
+  if (audioBlob && audioBuf) {
+    try {
+      const actx = new AudioContext();
+      const dest = actx.createMediaStreamDestination();
+      const src = actx.createBufferSource();
+      src.buffer = audioBuf;
+      src.connect(dest);
+      src.start();
+      combinedStream = new MediaStream([videoTrack, dest.stream.getAudioTracks()[0]]);
+    } catch { /* audio mix failed — export video-only */ }
+  }
+
+  const recorder = new MediaRecorder(combinedStream, {
+    mimeType: vmime,
+    videoBitsPerSecond: 6000000,
+  });
+
+  const finalChunks = [];
+  recorder.ondataavailable = e => { if (e.data.size) finalChunks.push(e.data); };
+
+  const done = new Promise(resolve => {
+    recorder.onstop = () => {
+      const vBlob = new Blob(finalChunks, { type: vmime });
+      const url = URL.createObjectURL(vBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `puppet-greenscreen-${Date.now()}.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
+      btnExport.disabled = false;
+      btnExport.textContent = '⬇ Export Green‑Screen Video';
+      resolve();
+    };
+  });
+
+  recorder.start();
+
+  // Frame pump
+  const frameDur = 1000 / FPS;
+  const t0 = performance.now();
+  let droppedFrames = 0;
+
+  for (let i = 0; i < totalFrames; i++) {
+    const target = t0 + (i + 1) * frameDur;
+    // Green bg
+    expCtx.fillStyle = '#00ff00';
+    expCtx.fillRect(0, 0, W, H);
+    // Puppet
+    renderFrame(expCtx, ampData[i]);
+
+    const delay = target - performance.now();
+    if (delay > 1) {
+      await new Promise(r => setTimeout(r, delay));
+    } else if (delay < -frameDur) {
+      droppedFrames++;
+    }
+
+    // Update progress every 10 frames
+    if (i % 10 === 0) {
+      btnExport.textContent = `⏳ Rendering ${Math.round((i/totalFrames)*100)}%…`;
+    }
+  }
+
+  // Hold last frame briefly
+  await new Promise(r => setTimeout(r, 150));
+  recorder.stop();
+  await done;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RESET
+// ═══════════════════════════════════════════════════════════
+btnReset.addEventListener('click', fullReset);
+
+function fullReset() {
+  stopRecording();
+  stopAnim();
+  srcImg = null;
+  upperData = null; lowerData = null;
+  upperCache = null; lowerCache = null;
+  cutLine = null; drawing = false; drawStart = null;
+  clearEyeLines();
+  drawMode = 'mouth';
+  audioBuf = null; audioBlob = null; ampData = null;
+  mrChunks = []; mr = null;
+  recState = 'idle';
+  audioCtx?.close().catch(()=>{}); audioCtx = null;
+
+  blankStage();
+  dropzone.classList.remove('filled');
+  dropzone.innerHTML = '<span class="dz-icon">🖼</span><span class="dz-label">Drop image or click</span>';
+  fileInp.value = '';
+
+  // Reset all panels
+  ['cut','eyes','mode','record','export'].forEach(k => { setPanel(k, false); setStep(k, false); });
+
+  recDot.classList.remove('live','ready');
+  btnRec.textContent = '🎤 Record';
+  btnRec.classList.add('btn-danger'); btnRec.classList.remove('btn-ghost');
+  btnPlay.disabled = true;
+  btnAnim.disabled = true;
+  btnExport.disabled = true;
+  recTime.textContent = '0:00';
+  stageHint.textContent = 'Upload an image to begin';
+  hintCut.innerHTML = 'Click &amp; drag across the <strong>mouth</strong> on the stage.';
+
+  // Clear waveform
+  waveCanvas.width = waveCanvas.parentElement.clientWidth;
+  waveCanvas.height = 42;
+  wfCtx.clearRect(0,0, waveCanvas.width, waveCanvas.height);
+
+  // Reset mode toggles
+  $$('.seg-btn', segMode).forEach((b,i) => b.classList.toggle('active', i===0));
+  $$('.seg-btn', segPivot).forEach((b,i) => b.classList.toggle('active', i===0));
+  mode = 'side'; pivot = 'left';
+  pivotWrap.style.display = '';
+
+  // Reset eye UI
+  btnEyeMode.textContent = '✏ Add Eye Lines';
+  btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
+  hintEyes.style.display = 'none';
+  eyeList.style.display = 'none';
+  btnEyeClear.style.display = 'none';
+}
+</script>
+</body>
+</html>
