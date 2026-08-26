@@ -924,16 +924,20 @@ function renderFrame(tgt, mouthOpen) {
     const {x1,y1,x2,y2} = cutLine;
     const px = pivot === 'left' ? Math.min(x1,x2) : Math.max(x1,x2);
     const py = pivot === 'left' ? (x1 < x2 ? y1 : y2) : (x1 > x2 ? y1 : y2);
-    const dir = pivot === 'left' ? -1 : 1;
+    // Top head tilts UP/away as mouth opens, so direction is inverted vs jaw drop
+    const dir = pivot === 'left' ? 1 : -1;
 
-    tgt.drawImage(upperCache, 0, 0);
-    // Blink patches on upper piece before rotating lower
-    renderBlinks(tgt);
+    // Lower piece (jaw/body) stays stationary
+    tgt.drawImage(lowerCache, 0, 0);
+
+    // Upper piece (head) rotates around the mouth-corner pivot
     tgt.save();
     tgt.translate(px, py);
     tgt.rotate(angle * dir);
     tgt.translate(-px, -py);
-    tgt.drawImage(lowerCache, 0, 0);
+    tgt.drawImage(upperCache, 0, 0);
+    // Blink patches ride with the rotating upper piece
+    renderBlinks(tgt);
     tgt.restore();
   } else {
     const off = mo * MAX_OFFSET;
