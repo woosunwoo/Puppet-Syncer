@@ -353,10 +353,10 @@ const hintEyes    = $('#hint-eyes');
 const eyeList     = $('#eye-list');
 
 // ── Constants ─────────────────────────────────────────────
-const  W = 640, H = 480;
+const  W = 1280, H = 960;
 const  FPS = 30;
 const  MAX_ANGLE = 14;      // degrees for side-pivot
-const  MAX_OFFSET = 22;     // px for front-face
+const  MAX_OFFSET = 44;     // px for front-face (scaled to resolution)
 const  NOISE_FLOOR = 0.06;  // gate out ambient noise
 
 // ── State ─────────────────────────────────────────────────
@@ -1173,7 +1173,7 @@ async function doExport() {
 
   const recorder = new MediaRecorder(combinedStream, {
     mimeType: vmime,
-    videoBitsPerSecond: 6000000,
+    videoBitsPerSecond: 24000000,
   });
 
   const finalChunks = [];
