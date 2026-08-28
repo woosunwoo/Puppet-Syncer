@@ -237,6 +237,7 @@
       <div id="eye-list" style="font-size:0.72rem;color:var(--text-dim);margin:4px 0;display:none;"></div>
       <div style="display:flex;gap:6px;margin-top:6px;">
         <button class="btn btn-ghost btn-sm" id="btn-eye-mode" style="flex:1;">✏ Add Eye Lines</button>
+        <button class="btn btn-ghost btn-sm" id="btn-eye-test" style="display:none;">👁 Test Blinks</button>
         <button class="btn btn-ghost btn-sm" id="btn-eye-clear" style="display:none;">Clear</button>
       </div>
     </div>
@@ -348,6 +349,7 @@ const steps = {
 };
 
 const btnEyeMode  = $('#btn-eye-mode');
+const btnEyeTest  = $('#btn-eye-test');
 const btnEyeClear = $('#btn-eye-clear');
 const hintEyes    = $('#hint-eyes');
 const eyeList     = $('#eye-list');
@@ -477,6 +479,7 @@ function loadFile(file) {
       btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
       hintEyes.style.display = 'none';
       eyeList.style.display = 'none';
+      btnEyeTest.style.display = 'none';
       btnEyeClear.style.display = 'none';
       redrawAll();
       dropzone.classList.add('filled');
@@ -652,6 +655,7 @@ function resetCut() {
   btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
   hintEyes.style.display = 'none';
   eyeList.style.display = 'none';
+  btnEyeTest.style.display = 'none';
   btnEyeClear.style.display = 'none';
   redrawAll();
   stageHint.textContent = 'Draw a cut line across the mouth';
@@ -768,12 +772,14 @@ function clearEyeLines() {
 function updateEyeUI() {
   if (eyeLines.length === 0) {
     eyeList.style.display = 'none';
+    btnEyeTest.style.display = 'none';
     btnEyeClear.style.display = 'none';
   } else {
     eyeList.style.display = '';
     eyeList.innerHTML = eyeLines.map((_, i) =>
       `<span style="display:inline-block;background:var(--bg);padding:2px 8px;border-radius:4px;margin:2px 3px;">👁 Eye ${i + 1}</span>`
     ).join('');
+    btnEyeTest.style.display = '';
     btnEyeClear.style.display = '';
   }
 }
@@ -820,6 +826,42 @@ btnEyeClear.addEventListener('click', () => {
   clearEyeLines();
   redrawAll();
   stageHint.textContent = 'Eyes cleared. Toggle eye mode to add new ones.';
+});
+
+let testBlinkJob = null;
+btnEyeTest.addEventListener('click', () => {
+  if (!eyeLines.length || !upperData) return;
+  // Force 4 rapid paired blinks spaced 0.55s apart
+  if (testBlinkJob) cancelAnimationFrame(testBlinkJob);
+  const t0 = performance.now() / 1000;
+  const blinks = [0.0, 0.5, 1.0, 1.5]; // seconds from t0
+  btnEyeTest.disabled = true;
+  function run() {
+    const now = performance.now() / 1000;
+    const elapsed = now - t0;
+    const active = blinks.some(b => Math.abs(elapsed - b) < 0.14);
+    if (active) {
+      // Force all eyes into blink
+      blinkState = eyeLines.map((_, i) => ({
+        stage: 'blinking',
+        since: now - 0.02, // near-peak of blink
+        duration: 0.14,
+        pairedWith: -1,
+        doubleChance: 0,
+        _doubled: false,
+      }));
+    }
+    renderStage(0); // closed mouth, show blinks
+    if (elapsed < blinks[blinks.length - 1] + 0.2) {
+      testBlinkJob = requestAnimationFrame(run);
+    } else {
+      resetBlinkTimers();
+      renderStage(0);
+      btnEyeTest.disabled = false;
+      testBlinkJob = null;
+    }
+  }
+  requestAnimationFrame(run);
 });
 
 // Draw blink patches over the already-rendered upper piece
@@ -1281,6 +1323,7 @@ function fullReset() {
   btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
   hintEyes.style.display = 'none';
   eyeList.style.display = 'none';
+  btnEyeTest.style.display = 'none';
   btnEyeClear.style.display = 'none';
 }
 </script>
