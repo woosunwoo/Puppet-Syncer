@@ -831,26 +831,23 @@ btnEyeClear.addEventListener('click', () => {
 let testBlinkJob = null;
 btnEyeTest.addEventListener('click', () => {
   if (!eyeLines.length || !upperData) return;
-  // Schedule one blink per eye, 1.5s apart. Real renderBlinks drives the animation.
   if (testBlinkJob) cancelAnimationFrame(testBlinkJob);
+
+  // Use the real scheduler so blinks animate identically to preview.
+  // Then tighten nextAt so each eye fires once, staggered, in the next few seconds.
+  resetBlinkTimers();
   const t0 = performance.now() / 1000;
-  const stagger = 1.6;
-  // Give each eye its own fire time; use 0-duration to force renderBlinks' idle→blink transition
-  blinkState = eyeLines.map((_, i) => ({
-    stage: 'idle',
-    nextAt: t0 + 0.1 + i * stagger,
-    duration: 0,
-    pairedWith: -1,
-    doubleChance: 1, // never double in test
-    _doubled: false,
-  }));
+  const stagger = 1.8;
+  blinkState.forEach((bs, i) => {
+    bs.nextAt = t0 + 0.15 + i * stagger;
+    bs.doubleChance = 1; // suppress double-blinks during test
+  });
+
   btnEyeTest.disabled = true;
-  const endAt = t0 + 0.1 + eyeLines.length * stagger + 0.5;
+  const endAt = t0 + 0.15 + eyeLines.length * stagger + 0.6;
   function run() {
-    const now = performance.now() / 1000;
-    // Let normal renderBlinks process the nextAt triggers
-    if (now < endAt) {
-      renderStage(0);
+    renderStage(0);            // closed mouth, real renderBlinks runs each frame
+    if (performance.now() / 1000 < endAt) {
       testBlinkJob = requestAnimationFrame(run);
     } else {
       resetBlinkTimers();
