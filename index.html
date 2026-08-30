@@ -649,14 +649,11 @@ mainCanvas.addEventListener('touchend', e => {
 function resetCut() {
   cutLine = null; upperData = null; lowerData = null; upperCache = null; lowerCache = null;
   drawing = false; drawStart = null;
-  clearEyeLines();
+  // Keep eye lines — they'll be resampled after the new cut
   drawMode = 'mouth';
   btnEyeMode.textContent = '✏ Add Eye Lines';
   btnEyeMode.classList.remove('btn-primary'); btnEyeMode.classList.add('btn-ghost');
   hintEyes.style.display = 'none';
-  eyeList.style.display = 'none';
-  btnEyeTest.style.display = 'none';
-  btnEyeClear.style.display = 'none';
   redrawAll();
   stageHint.textContent = 'Draw a cut line across the mouth';
   hintCut.innerHTML = 'Click &amp; drag across the <strong>mouth</strong> on the stage.';
@@ -712,6 +709,7 @@ function doSlice() {
   lowerCache = lo;
 
   // Show closed-mouth preview on the stage
+  rebuildEyePatches();
   renderStage(0);
 }
 
@@ -767,6 +765,15 @@ function clearEyeLines() {
   eyeLines = [];
   blinkState = [];
   updateEyeUI();
+}
+
+function rebuildEyePatches() {
+  // Resample all eye patches from the current upperCache (called after mouth re-cut)
+  if (eyeLines.length === 0 || !upperCache) return;
+  eyeLines = eyeLines.map(el => ({
+    x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2,
+    patch: buildEyePatch({ x: el.x1, y: el.y1 }, { x: el.x2, y: el.y2 }),
+  }));
 }
 
 function updateEyeUI() {
