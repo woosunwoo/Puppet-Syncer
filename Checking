@@ -1,0 +1,4 @@
+==> Checking for any remaining audioBuffer references
+grep -n 'audioBuffer' /home/sunwooz/Phoenix/Puppet-Syncer/index.html
+echo ---
+echo == alignWordLists and renderTextOverlayOnImage for logic
