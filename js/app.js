@@ -742,6 +742,7 @@
           state.audioBlob = new Blob(state.mrChunks, { type: mime });
           const buf = await state.audioBlob.arrayBuffer();
           state.audioBuf = await state.audioCtx.decodeAudioData(buf);
+          state.rawAudioBuf = state.audioBuf; // Cache original unmuted audio
           state.ampData = PS.computeAmps(state.audioBuf);
 
           state.recState = 'idle';
@@ -759,9 +760,17 @@
           if (btnPlay) btnPlay.disabled = false;
           if (btnAnim) btnAnim.disabled = false;
 
-          if (typeof PS.drawWaveform === 'function') PS.drawWaveform();
-          state.currentPlayheadTime = 0;
-          if (typeof PS.renderTimeline === 'function') PS.renderTimeline();
+          // Auto-apply initial default mute (0.15s) to eliminate the record clicks immediately
+          const startSec = parseFloat($('#mute-start-sec')?.value) || 0;
+          const endSec = parseFloat($('#mute-end-sec')?.value) || 0;
+          if (startSec > 0 || endSec > 0) {
+            PS.applyMute(startSec, endSec);
+          } else {
+            if (typeof PS.drawWaveform === 'function') PS.drawWaveform();
+            state.currentPlayheadTime = 0;
+            if (typeof PS.renderTimeline === 'function') PS.renderTimeline();
+          }
+
           PS.updateSyncButton();
           PS.autoUnlock();
         };
@@ -1077,6 +1086,51 @@
       if (wc) wc.getContext('2d').clearRect(0, 0, 1000, 38);
       if (typeof PS.renderTimeline === 'function') PS.renderTimeline();
     });
+    
+    // ── Audio Mute Controls ──
+    const btnApplyMute = $('#btn-apply-mute');
+    if (btnApplyMute) {
+      btnApplyMute.addEventListener('click', () => {
+        const startSec = parseFloat($('#mute-start-sec')?.value) || 0;
+        const endSec = parseFloat($('#mute-end-sec')?.value) || 0;
+        PS.applyMute(startSec, endSec);
+      });
+    }
+
+    const btnResetMute = $('#btn-reset-mute');
+    if (btnResetMute) {
+      btnResetMute.addEventListener('click', () => {
+        PS.resetMute();
+        const startInp = $('#mute-start-sec');
+        const endInp = $('#mute-end-sec');
+        if (startInp) startInp.value = '0';
+        if (endInp) endInp.value = '0';
+      });
+    }
+
+    const btnMutePlayheadStart = $('#btn-mute-playhead-start');
+    if (btnMutePlayheadStart) {
+      btnMutePlayheadStart.addEventListener('click', () => {
+        const curT = Math.max(0, state.currentPlayheadTime);
+        const startInp = $('#mute-start-sec');
+        if (startInp) startInp.value = curT.toFixed(2);
+        const endSec = parseFloat($('#mute-end-sec')?.value) || 0;
+        PS.applyMute(curT, endSec);
+      });
+    }
+
+    const btnMutePlayheadEnd = $('#btn-mute-playhead-end');
+    if (btnMutePlayheadEnd) {
+      btnMutePlayheadEnd.addEventListener('click', () => {
+        const totalDur = state.rawAudioBuf ? state.rawAudioBuf.duration : (state.audioBuf ? state.audioBuf.duration : 0);
+        const curT = Math.max(0, state.currentPlayheadTime);
+        const endDur = Math.max(0, totalDur - curT);
+        const endInp = $('#mute-end-sec');
+        if (endInp) endInp.value = endDur.toFixed(2);
+        const startSec = parseFloat($('#mute-start-sec')?.value) || 0;
+        PS.applyMute(startSec, endDur);
+      });
+    }
   }
 
   setupUploadHandlers();

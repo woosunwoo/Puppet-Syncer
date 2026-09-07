@@ -34,7 +34,14 @@ PS.state = {
   textBgColor: '#ffffff', arrangeDrag: null, selectedArrangeElement: null,
 
   selectedWordIndices: new Set(), primarySelectedIdx: -1, tlDragState: null,
-  marqueeState: null, isScrubbingRuler: false
+  marqueeState: null, isScrubbingRuler: false,
+
+  rawAudioBuf: null, // Holds original unmuted audio for non-destructive edits
+  audioBlob: null, 
+  ampData: null, 
+  muteStart: 0,
+  muteEnd: 0,
+  recState: 'idle',
 };
 
 PS.setPanel = function (name, on) {
