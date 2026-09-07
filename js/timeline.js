@@ -3,6 +3,67 @@ window.PS = window.PS || {};
 (function () {
   const { $, state, W, H, PX_PER_SEC } = PS;
 
+  // Cached DOM elements
+  let domPlayhead = null;
+  let domTimeDisp = null;
+  let domActiveWord = null;
+  let domScrollWrap = null;
+  let domTrackArea = null;
+  let domRulerCanvas = null;
+  let domWaveCanvas = null;
+  let domBlocksContainer = null;
+
+  function cacheDOM() {
+    domPlayhead = domPlayhead || $('#tl-playhead');
+    domTimeDisp = domTimeDisp || $('#tl-time-disp');
+    domActiveWord = domActiveWord || $('#tl-active-word');
+    domScrollWrap = domScrollWrap || $('#tl-scroll-wrap');
+    domTrackArea = domTrackArea || $('#tl-track-area');
+    domRulerCanvas = domRulerCanvas || $('#tl-ruler-canvas');
+    domWaveCanvas = domWaveCanvas || $('#tl-wave-canvas');
+    domBlocksContainer = domBlocksContainer || $('#tl-blocks');
+  }
+
+  // Cache word block elements to avoid document.querySelector inside animation loop
+  let blockElements = [];
+  let currentActiveWordIdx = -1;
+  let lastTimeDispSec = -1;
+
+  // Memoized line grouping to prevent array allocations and .sort() every frame
+  let cachedWordsRef = null;
+  let cachedLines = [];
+  let lastHoverActiveIdx = -1;
+
+  function getLineGroups(words) {
+    const isLive = state.isLiveHoverSyncing;
+    if (!isLive && words === cachedWordsRef && cachedLines.length > 0) {
+      return cachedLines;
+    }
+    if (isLive && words === cachedWordsRef && state.liveHoverActiveIdx === lastHoverActiveIdx && cachedLines.length > 0) {
+      return cachedLines;
+    }
+
+    cachedWordsRef = words;
+    lastHoverActiveIdx = state.liveHoverActiveIdx;
+
+    const lineMap = new Map();
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (w.start < 0 && !isLive) continue;
+      const line = w.line ?? 0;
+      if (!lineMap.has(line)) lineMap.set(line, []);
+      lineMap.get(line).push(w);
+    }
+
+    cachedLines = [];
+    lineMap.forEach(group => {
+      group.sort((a, b) => a.x - b.x);
+      cachedLines.push(group);
+    });
+
+    return cachedLines;
+  }
+
   PS.renderStage = function (mouthOpen, currentTime = 0) {
     const mainCanvas = $('#main-canvas');
     if (!mainCanvas) return;
@@ -10,7 +71,7 @@ window.PS = window.PS || {};
     ctx.fillStyle = '#141416';
     ctx.fillRect(0, 0, W, H);
 
-    // If mouth has not been cut yet, draw base unscaled image
+    // If mouth hasn't been cut yet, draw base unscaled image
     if (!state.upperData) {
       if (state.srcImg) {
         const s = Math.min(W / state.srcImg.width, H / state.srcImg.height);
@@ -95,21 +156,17 @@ window.PS = window.PS || {};
     const wordsToRender = state.isLiveHoverSyncing ? state.liveHoverWords : state.syncedWords;
     if (!wordsToRender.length) return;
 
-    tgt.save();
-    const lineMap = new Map();
-    wordsToRender.forEach(w => {
-      if (w.start < 0 && !state.isLiveHoverSyncing) return;
-      const line = w.line ?? 0;
-      if (!lineMap.has(line)) lineMap.set(line, []);
-      lineMap.get(line).push(w);
-    });
+    // Use zero-allocation cached groups
+    const lineGroups = getLineGroups(wordsToRender);
 
-    lineMap.forEach(words => {
-      if (words.length === 0) return;
-      words.sort((a, b) => a.x - b.x);
+    tgt.save();
+    for (let g = 0; g < lineGroups.length; g++) {
+      const words = lineGroups[g];
+      if (words.length === 0) continue;
 
       if (state.isLiveHoverSyncing) {
-        words.forEach(w => {
+        for (let i = 0; i < words.length; i++) {
+          const w = words[i];
           if (w.start >= 0) {
             tgt.fillStyle = 'rgba(255, 215, 0, 0.45)';
             tgt.fillRect(w.x - 1, w.y - 1, w.w + 2, w.h + 2);
@@ -118,14 +175,21 @@ window.PS = window.PS || {};
             tgt.lineWidth = 1; tgt.setLineDash([3, 2]);
             tgt.strokeRect(w.x, w.y, w.w, w.h);
           }
-        });
-        return;
+        }
+        continue;
       }
 
-      const activeIdx = words.findIndex(w => currentTime >= w.start && currentTime < w.end);
+      let activeIdx = -1;
       let lastStartedIdx = -1;
       for (let i = words.length - 1; i >= 0; i--) {
-        if (currentTime >= words[i].start) { lastStartedIdx = i; break; }
+        const w = words[i];
+        if (activeIdx === -1 && currentTime >= w.start && currentTime < w.end) {
+          activeIdx = i;
+        }
+        if (lastStartedIdx === -1 && currentTime >= w.start) {
+          lastStartedIdx = i;
+        }
+        if (activeIdx !== -1 && lastStartedIdx !== -1) break;
       }
 
       if (state.textSyncMode === 'reveal') {
@@ -157,52 +221,70 @@ window.PS = window.PS || {};
           tgt.fillRect(firstW.x, firstW.y - 2, barRight - firstW.x, firstW.h + 4);
         }
       }
-    });
+    }
     tgt.restore();
   };
 
   PS.renderTimeline = function () {
+    cacheDOM();
     const totalDur = state.audioBuf ? state.audioBuf.duration : (state.syncedWords.length ? state.syncedWords[state.syncedWords.length - 1].end + 1 : 5);
-    const trackWidth = Math.max($('#tl-scroll-wrap').clientWidth, Math.ceil(totalDur * PX_PER_SEC) + 120);
+    const trackWidth = Math.max(domScrollWrap ? domScrollWrap.clientWidth : 800, Math.ceil(totalDur * PX_PER_SEC) + 120);
 
-    $('#tl-track-area').style.width = trackWidth + 'px';
-    const ruler = $('#tl-ruler-canvas');
-    const wave = $('#tl-wave-canvas');
-    ruler.width = trackWidth; ruler.height = 22;
-    wave.width = trackWidth; wave.height = 42;
+    if (domTrackArea) domTrackArea.style.width = trackWidth + 'px';
+    if (domRulerCanvas) {
+      domRulerCanvas.width = trackWidth;
+      domRulerCanvas.height = 22;
+      const tlRulerCtx = domRulerCanvas.getContext('2d');
+      tlRulerCtx.clearRect(0, 0, trackWidth, 22);
+      tlRulerCtx.fillStyle = '#6e6a60';
+      tlRulerCtx.font = '10px "JetBrains Mono", monospace';
+      tlRulerCtx.strokeStyle = '#34343a';
+      tlRulerCtx.lineWidth = 1;
 
-    const tlRulerCtx = ruler.getContext('2d');
-    tlRulerCtx.clearRect(0, 0, trackWidth, 22);
-    tlRulerCtx.fillStyle = '#6e6a60';
-    tlRulerCtx.font = '10px "JetBrains Mono", monospace';
-    tlRulerCtx.strokeStyle = '#34343a';
-    tlRulerCtx.lineWidth = 1;
-
-    for (let s = 0; s <= Math.ceil(totalDur) + 1; s++) {
-      const x = Math.round(s * PX_PER_SEC);
-      tlRulerCtx.beginPath(); tlRulerCtx.moveTo(x, 12); tlRulerCtx.lineTo(x, 22); tlRulerCtx.stroke();
-      const min = Math.floor(s / 60);
-      const sec = (s % 60).toString().padStart(2, '0');
-      tlRulerCtx.fillText(`${min}:${sec}`, x + 4, 16);
-      const hx = Math.round((s + 0.5) * PX_PER_SEC);
-      tlRulerCtx.beginPath(); tlRulerCtx.moveTo(hx, 17); tlRulerCtx.lineTo(hx, 22); tlRulerCtx.stroke();
-    }
-
-    const tlWaveCtx = wave.getContext('2d');
-    tlWaveCtx.clearRect(0, 0, trackWidth, 42);
-    if (state.ampData) {
-      tlWaveCtx.fillStyle = '#e89440';
-      const nFrames = state.ampData.length;
-      for (let i = 0; i < nFrames; i++) {
-        const t = i / PS.FPS;
-        const x = t * PX_PER_SEC;
-        const barH = state.ampData[i] * 38;
-        tlWaveCtx.fillRect(x, (42 - barH) / 2, Math.max(1, (PX_PER_SEC / PS.FPS) - 0.5), barH);
+      for (let s = 0; s <= Math.ceil(totalDur) + 1; s++) {
+        const x = Math.round(s * PX_PER_SEC);
+        tlRulerCtx.beginPath(); tlRulerCtx.moveTo(x, 12); tlRulerCtx.lineTo(x, 22); tlRulerCtx.stroke();
+        const min = Math.floor(s / 60);
+        const sec = (s % 60).toString().padStart(2, '0');
+        tlRulerCtx.fillText(`${min}:${sec}`, x + 4, 16);
+        const hx = Math.round((s + 0.5) * PX_PER_SEC);
+        tlRulerCtx.beginPath(); tlRulerCtx.moveTo(hx, 17); tlRulerCtx.lineTo(hx, 22); tlRulerCtx.stroke();
       }
     }
 
-    const tlBlocks = $('#tl-blocks');
-    tlBlocks.innerHTML = '';
+    if (domWaveCanvas) {
+      domWaveCanvas.width = trackWidth;
+      domWaveCanvas.height = 42;
+      const tlWaveCtx = domWaveCanvas.getContext('2d');
+      tlWaveCtx.clearRect(0, 0, trackWidth, 42);
+      if (state.ampData) {
+        tlWaveCtx.fillStyle = '#e89440';
+        const nFrames = state.ampData.length;
+        for (let i = 0; i < nFrames; i++) {
+          const t = i / PS.FPS;
+          const x = t * PX_PER_SEC;
+          const barH = state.ampData[i] * 38;
+          tlWaveCtx.fillRect(x, (42 - barH) / 2, Math.max(1, (PX_PER_SEC / PS.FPS) - 0.5), barH);
+        }
+      }
+    }
+
+    // Invalidate cached line groups whenever timeline rebuilds
+    cachedWordsRef = null;
+    cachedLines = [];
+
+    PS.renderWordBlocks();
+    PS.updatePlayhead(state.currentPlayheadTime);
+    PS.updateInspectorUI();
+  };
+
+  PS.renderWordBlocks = function () {
+    cacheDOM();
+    if (!domBlocksContainer) return;
+    domBlocksContainer.innerHTML = '';
+    blockElements = [];
+    currentActiveWordIdx = -1;
+
     state.syncedWords.forEach((w, idx) => {
       const left = w.start * PX_PER_SEC;
       const width = Math.max(18, (w.end - w.start) * PX_PER_SEC);
@@ -271,23 +353,23 @@ window.PS = window.PS || {};
         PS.seekTo(w.start);
       });
 
-      tlBlocks.appendChild(el);
+      domBlocksContainer.appendChild(el);
+      blockElements[idx] = el;
     });
-
-    PS.updatePlayhead(state.currentPlayheadTime);
-    PS.updateInspectorUI();
   };
 
   PS.refreshBlockSelectionVisuals = function () {
-    state.syncedWords.forEach((_, idx) => {
-      const block = $(`#tl-word-${idx}`);
-      if (block) block.classList.toggle('selected', state.selectedWordIndices.has(idx));
-    });
+    for (let idx = 0; idx < state.syncedWords.length; idx++) {
+      const el = blockElements[idx];
+      if (el) el.classList.toggle('selected', state.selectedWordIndices.has(idx));
+    }
   };
 
   PS.updateInspectorUI = function () {
     const tlInspectorWord = $('#tl-inspector-word');
     const tlDurInput = $('#tl-dur-input');
+    if (!tlInspectorWord || !tlDurInput) return;
+
     if (state.primarySelectedIdx >= 0 && state.primarySelectedIdx < state.syncedWords.length && state.selectedWordIndices.has(state.primarySelectedIdx)) {
       const w = state.syncedWords[state.primarySelectedIdx];
       tlInspectorWord.textContent = `Word: "${w.word}"`;
@@ -314,25 +396,47 @@ window.PS = window.PS || {};
     if (wasPlaying) PS.startAnim(true, state.currentPlayheadTime);
   };
 
+  // High-performance playhead updater: 0 querySelector calls, 0 allocation, O(1) DOM updates
   PS.updatePlayhead = function (timeSec) {
-    const totalDur = state.audioBuf ? state.audioBuf.duration : 0;
-    $('#tl-playhead').style.left = `${timeSec * PX_PER_SEC}px`;
-    const m = Math.floor(timeSec / 60);
-    const s = (timeSec % 60).toFixed(2).padStart(5, '0');
-    const tm = Math.floor(totalDur / 60);
-    const ts = (totalDur % 60).toFixed(2).padStart(5, '0');
-    $('#tl-time-disp').textContent = `${m}:${s} / ${tm}:${ts}`;
+    cacheDOM();
+    if (domPlayhead) {
+      domPlayhead.style.left = `${timeSec * PX_PER_SEC}px`;
+    }
 
-    let activeW = null;
-    state.syncedWords.forEach((w, idx) => {
-      const el = $(`#tl-word-${idx}`);
+    // Throttle time string formatting to 10Hz to prevent forced style recalculations
+    const secRounded = Math.floor(timeSec * 10);
+    if (secRounded !== lastTimeDispSec && domTimeDisp) {
+      lastTimeDispSec = secRounded;
+      const totalDur = state.audioBuf ? state.audioBuf.duration : 0;
+      const m = Math.floor(timeSec / 60);
+      const s = (timeSec % 60).toFixed(2).padStart(5, '0');
+      const tm = Math.floor(totalDur / 60);
+      const ts = (totalDur % 60).toFixed(2).padStart(5, '0');
+      domTimeDisp.textContent = `${m}:${s} / ${tm}:${ts}`;
+    }
+
+    // Find active word with pure memory iteration
+    let newActiveIdx = -1;
+    for (let i = 0; i < state.syncedWords.length; i++) {
+      const w = state.syncedWords[i];
       if (timeSec >= w.start && timeSec < w.end) {
-        el?.classList.add('active');
-        activeW = w.word;
-      } else {
-        el?.classList.remove('active');
+        newActiveIdx = i;
+        break;
       }
-    });
-    $('#tl-active-word').textContent = activeW ? `[${activeW}]` : '—';
+    }
+
+    // Only mutate DOM when the active word state actually transitions
+    if (newActiveIdx !== currentActiveWordIdx) {
+      if (currentActiveWordIdx >= 0 && blockElements[currentActiveWordIdx]) {
+        blockElements[currentActiveWordIdx].classList.remove('active');
+      }
+      if (newActiveIdx >= 0 && blockElements[newActiveIdx]) {
+        blockElements[newActiveIdx].classList.add('active');
+        if (domActiveWord) domActiveWord.textContent = `[${state.syncedWords[newActiveIdx].word}]`;
+      } else {
+        if (domActiveWord) domActiveWord.textContent = '—';
+      }
+      currentActiveWordIdx = newActiveIdx;
+    }
   };
 })();

@@ -26,9 +26,9 @@ window.PS = window.PS || {};
 
   PS.drawWaveform = function () {
     const waveCanvas = $('#wave-canvas');
+    if (!waveCanvas || !state.ampData) return;
     const wfCtx = waveCanvas.getContext('2d');
-    if (!state.ampData) return;
-    const w = waveCanvas.parentElement.clientWidth;
+    const w = waveCanvas.parentElement ? waveCanvas.parentElement.clientWidth : 300;
     waveCanvas.width = w; waveCanvas.height = 38;
     wfCtx.clearRect(0, 0, w, 38);
     const barW = w / state.ampData.length;
@@ -70,13 +70,21 @@ window.PS = window.PS || {};
   PS.startAnim = function (withAudio = false, offsetSec = 0) {
     PS.stopAnim(false, false);
     state.animating = true;
-    $('#btn-anim').textContent = '⏹ Stop';
-    $('#btn-tl-play').textContent = '⏹ Stop';
 
-    const t0 = performance.now();
+    const btnAnim = $('#btn-anim');
+    const btnTlPlay = $('#btn-tl-play');
+    if (btnAnim) btnAnim.textContent = '⏹ Stop';
+    if (btnTlPlay) btnTlPlay.textContent = '⏹ Stop';
+
+    // Cache layout dimensions to prevent layout thrashing inside RAF
+    const tlScrollWrap = $('#tl-scroll-wrap');
+    let cachedClientWidth = tlScrollWrap ? tlScrollWrap.clientWidth : 800;
+
     let audioStartTime = null;
+    const perfStartTime = performance.now();
 
     if (withAudio && state.audioBuf) {
+      if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
       try { state.animAudioSrc?.stop(); } catch {}
       state.animAudioSrc = state.audioCtx.createBufferSource();
@@ -88,23 +96,43 @@ window.PS = window.PS || {};
       audioStartTime = state.audioCtx.currentTime;
     }
 
+    const totalDur = state.audioBuf
+      ? state.audioBuf.duration
+      : (state.syncedWords.length ? state.syncedWords[state.syncedWords.length - 1].end : 0);
+
+    let lastScrollCheck = 0;
+
     function loop() {
       if (!state.animating) return;
-      const elapsed = audioStartTime !== null
-        ? offsetSec + Math.max(0, state.audioCtx.currentTime - audioStartTime)
-        : offsetSec + (performance.now() - t0) / 1000;
+
+      // Jitter-free high resolution clock synchronized with Web Audio
+      const perfElapsed = offsetSec + (performance.now() - perfStartTime) / 1000;
+      let elapsed;
+
+      if (audioStartTime !== null && state.audioCtx) {
+        const audioElapsed = offsetSec + Math.max(0, state.audioCtx.currentTime - audioStartTime);
+        // If performance timer and audio clock diverge by >40ms, snap to audio clock; otherwise use smooth perf time
+        elapsed = Math.abs(perfElapsed - audioElapsed) < 0.04 ? perfElapsed : audioElapsed;
+      } else {
+        elapsed = perfElapsed;
+      }
 
       state.currentPlayheadTime = elapsed;
       const idx = Math.floor(elapsed * FPS);
+
+      // Sub-millisecond playhead update
       PS.updatePlayhead(elapsed);
 
-      const tlScrollWrap = $('#tl-scroll-wrap');
-      const px = elapsed * PX_PER_SEC;
-      if (px > tlScrollWrap.scrollLeft + tlScrollWrap.clientWidth - 40) {
-        tlScrollWrap.scrollLeft = px - 80;
+      // Auto-scroll timeline container without forcing reflow every frame (checks every 100ms)
+      if (tlScrollWrap && elapsed - lastScrollCheck > 0.1) {
+        lastScrollCheck = elapsed;
+        const px = elapsed * PX_PER_SEC;
+        if (px > tlScrollWrap.scrollLeft + cachedClientWidth - 40) {
+          tlScrollWrap.scrollLeft = px - 80;
+        }
       }
 
-      const totalDur = state.audioBuf ? state.audioBuf.duration : (state.syncedWords.length ? state.syncedWords[state.syncedWords.length - 1].end : 0);
+      // Render Stage
       if (state.ampData && idx < state.ampData.length) {
         PS.renderStage(state.ampData[idx], elapsed);
       } else if (elapsed >= totalDur) {
@@ -116,8 +144,10 @@ window.PS = window.PS || {};
       } else {
         PS.renderStage(0, elapsed);
       }
+
       state.animId = requestAnimationFrame(loop);
     }
+
     state.animId = requestAnimationFrame(loop);
   };
 
@@ -127,8 +157,11 @@ window.PS = window.PS || {};
     state.animId = null;
     try { state.animAudioSrc?.stop(); } catch {}
     state.animAudioSrc = null;
-    $('#btn-anim').textContent = '🎬 Preview';
-    $('#btn-tl-play').textContent = '▶ Play';
+
+    const btnAnim = $('#btn-anim');
+    const btnTlPlay = $('#btn-tl-play');
+    if (btnAnim) btnAnim.textContent = '🎬 Preview';
+    if (btnTlPlay) btnTlPlay.textContent = '▶ Play';
 
     if (resetToZero) state.currentPlayheadTime = 0;
     if (state.upperData) {
